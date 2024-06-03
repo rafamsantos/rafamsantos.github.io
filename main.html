@@ -1,0 +1,2414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+	<title>Crossy Road Clone</title>
+
+	<meta charset="utf-8">
+
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+	<style>
+		body {
+
+			background-color: #ffffff;
+
+			/* To use the compconste page */
+
+			margin: 0px;
+
+			overflow: hidden;
+		}
+        /* Center the button and initially hide it */
+        #hitButton {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px 20px;
+            font-size: 16px;
+            display: none; /* Hide initially */
+        }
+        #counter {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ffffff;
+            padding: 10px;
+        } 
+        #scoreboard {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border: 1px solid black;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        
+   
+	</style>
+
+</head>
+
+<body>
+    
+
+	<!-- The library --- Can be a local version -->
+
+
+	<script type="importmap">
+		{
+    		"imports": {
+     			 "three": "https://threejs.org/build/three.module.js"
+                }
+  		}
+	</script>
+
+
+	<!-- Javascript code that runs the Three.js example -->
+
+	<script type="module">
+
+		import * as THREE from 'three';
+
+        function init_3rd(){
+
+            const controls = document.getElementById('controlls');
+            controls.style.display = 'none';
+            const counterDOM = document.getElementById('counter');
+            const endDOM = document.getElementById('end');
+
+            const scene = new THREE.Scene();
+
+            const distance = 500;
+            const camera = new THREE.OrthographicCamera(window.innerWidth / -2, window.innerWidth / 2, window.innerHeight / 2, window.innerHeight / -2, 0.1, 10000);
+
+            camera.rotation.x = 50 * Math.PI / 180;
+            camera.rotation.y = 20 * Math.PI / 180;
+            camera.rotation.z = 10 * Math.PI / 180;
+
+            const initialCameraPositionY = -Math.tan(camera.rotation.x) * distance;
+            const initialCameraPositionX = Math.tan(camera.rotation.y) * Math.sqrt(distance ** 2 + initialCameraPositionY ** 2);
+            camera.position.y = initialCameraPositionY;
+            camera.position.x = initialCameraPositionX;
+            camera.position.z = distance;
+
+            const zoom = 2;
+
+            const chickenSize = 15;
+
+            const positionWidth = 42;
+            const columns = 17;
+            const boardWidth = positionWidth * columns;
+
+            const stepTime = 200; // Miliseconds it takes for the chicken to take a step forward, backward, left or right
+
+            let lanes;
+            let currentLane;
+            let currentColumn;
+
+            let previousTimestamp;
+            let startMoving;
+            let moves;
+            let stepStartTimestamp;
+
+            const carFrontTexture = new Texture(40, 80, [{ x: 0, y: 10, w: 30, h: 60 }]);
+            const carBackTexture = new Texture(40, 80, [{ x: 10, y: 10, w: 30, h: 60 }]);
+            const carRightSideTexture = new Texture(110, 40, [{ x: 10, y: 0, w: 50, h: 30 }, { x: 70, y: 0, w: 30, h: 30 }]);
+            const carLeftSideTexture = new Texture(110, 40, [{ x: 10, y: 10, w: 50, h: 30 }, { x: 70, y: 10, w: 30, h: 30 }]);
+
+            const truckFrontTexture = new Texture(30, 30, [{ x: 15, y: 0, w: 10, h: 30 }]);
+            const truckRightSideTexture = new Texture(25, 30, [{ x: 0, y: 15, w: 10, h: 10 }]);
+            const truckLeftSideTexture = new Texture(25, 30, [{ x: 0, y: 5, w: 10, h: 10 }]);
+
+            const generateLanes = () => [-9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((index) => {
+                const lane = new Lane(index);
+                lane.mesh.position.y = index * positionWidth * zoom;
+                scene.add(lane.mesh);
+                return lane;
+            }).filter((lane) => lane.index >= 0);
+
+            const addLane = () => {
+                const index = lanes.length;
+                const lane = new Lane(index);
+                lane.mesh.position.y = index * positionWidth * zoom;
+                scene.add(lane.mesh);
+                lanes.push(lane);
+            }
+
+            const chicken = new Chicken();
+            scene.add(chicken);
+
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.6);
+            scene.add(hemiLight)
+
+            const initialDirLightPositionX = -100;
+            const initialDirLightPositionY = -100;
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(initialDirLightPositionX, initialDirLightPositionY, 200);
+            dirLight.castShadow = true;
+            dirLight.target = chicken;
+            scene.add(dirLight);
+
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            var d = 500;
+            dirLight.shadow.camera.left = - d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = - d;
+
+            // var helper = new THREE.CameraHelper( dirLight.shadow.camera );
+            // var helper = new THREE.CameraHelper( camera );
+            // scene.add(helper)
+
+            const backLight = new THREE.DirectionalLight(0x000000, .4);
+            backLight.position.set(200, 200, 50);
+            backLight.castShadow = true;
+            scene.add(backLight)
+
+            const laneTypes = ['truck', 'forest', 'train'];
+            const laneSpeeds = [2, 2.5, 3];
+            const vechicleColors = [0xa52523, 0xbdb638, 0x78b14b];
+            const treeHeights = [20, 45, 60];
+
+            const initaliseValues = () => {
+                lanes = generateLanes()
+
+                currentLane = 0;
+                currentColumn = Math.floor(columns / 2);
+
+                previousTimestamp = null;
+
+                startMoving = false;
+                moves = [];
+                stepStartTimestamp;
+
+                chicken.position.x = 0;
+                chicken.position.y = 0;
+
+                camera.position.y = initialCameraPositionY;
+                camera.position.x = initialCameraPositionX;
+
+                dirLight.position.x = initialDirLightPositionX;
+                dirLight.position.y = initialDirLightPositionY;
+            }
+
+            initaliseValues();
+
+            const renderer = new THREE.WebGLRenderer({
+                alpha: true,
+                antialias: true
+            });
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            function Texture(width, height, rects) {
+                const canvas = document.createElement("canvas");
+                canvas.width = width;
+                canvas.height = height;
+                const context = canvas.getContext("2d");
+                context.fillStyle = "#ffffff";
+                context.fillRect(0, 0, width, height);
+                context.fillStyle = "rgba(0,0,0,0.6)";
+                rects.forEach(rect => {
+                    context.fillRect(rect.x, rect.y, rect.w, rect.h);
+                });
+                return new THREE.CanvasTexture(canvas);
+            }
+
+            function Wheel() {
+                const wheel = new THREE.Mesh(
+                    new THREE.BoxGeometry(12 * zoom, 33 * zoom, 12 * zoom),
+                    new THREE.MeshLambertMaterial({ color: 0x333333, flatShading: true })
+                );
+                wheel.position.z = 6 * zoom;
+                return wheel;
+            }
+
+            function Car() {
+                const car = new THREE.Group();
+                const color = vechicleColors[Math.floor(Math.random() * vechicleColors.length)];
+
+                const main = new THREE.Mesh(
+                    new THREE.BoxGeometry(60 * zoom, 30 * zoom, 15 * zoom),
+                    new THREE.MeshPhongMaterial({ color, flatShading: true })
+                );
+                main.position.z = 12 * zoom;
+                main.castShadow = true;
+                main.receiveShadow = true;
+                car.add(main)
+
+                const cabin = new THREE.Mesh(
+                    new THREE.BoxGeometry(33 * zoom, 24 * zoom, 12 * zoom),
+                    [
+                        new THREE.MeshPhongMaterial({ color: 0xcccccc, flatShading: true, map: carBackTexture }),
+                        new THREE.MeshPhongMaterial({ color: 0xcccccc, flatShading: true, map: carFrontTexture }),
+                        new THREE.MeshPhongMaterial({ color: 0xcccccc, flatShading: true, map: carRightSideTexture }),
+                        new THREE.MeshPhongMaterial({ color: 0xcccccc, flatShading: true, map: carLeftSideTexture }),
+                        new THREE.MeshPhongMaterial({ color: 0xcccccc, flatShading: true }), // top
+                        new THREE.MeshPhongMaterial({ color: 0xcccccc, flatShading: true }) // bottom
+                    ]
+                );
+                cabin.position.x = 6 * zoom;
+                cabin.position.z = 25.5 * zoom;
+                cabin.castShadow = true;
+                cabin.receiveShadow = true;
+                car.add(cabin);
+
+                const frontWheel = new Wheel();
+                frontWheel.position.x = -18 * zoom;
+                car.add(frontWheel);
+
+                const backWheel = new Wheel();
+                backWheel.position.x = 18 * zoom;
+                car.add(backWheel);
+
+                car.castShadow = true;
+                car.receiveShadow = false;
+
+                return car;
+            }
+
+            function Train() {
+                // Create cabin
+                const carBodyGeometry = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody = new THREE.Mesh(carBodyGeometry, carBodyMaterial);
+
+                // Create cabin
+                const carBodyGeometry1 = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial1 = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody1 = new THREE.Mesh(carBodyGeometry1, carBodyMaterial1);
+                carBody1.position.set(-100, 0, 0);
+                carBody.add(carBody1);
+
+
+                // Create cabin
+                const carBodyGeometry2 = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial2 = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody2 = new THREE.Mesh(carBodyGeometry2, carBodyMaterial2);
+                carBody2.position.set(-204, 0, 0);
+                carBody.add(carBody2);
+
+
+                // Create train driver cabin
+                const cabinGeometry = new THREE.BoxGeometry(35, 30, 40); // Customize dimensions as needed
+                const cabinMaterial = new THREE.MeshBasicMaterial({ color: 0x9DA377 });
+                const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+                cabin.position.set(62, 5, 0); // Position the cabin in front of the car body
+                carBody.add(cabin);
+                const cabinGeometry2 = new THREE.BoxGeometry(40, 40, 10); // Customize dimensions as needed
+                const cabinMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabin2 = new THREE.Mesh(cabinGeometry2, cabinMaterial2);
+                cabin2.position.set(60, -15, 0); // Position the cabin in front of the car body
+                cabin2.rotation.x = Math.PI / 2;
+                carBody.add(cabin2);
+
+                // Create wheels
+                const wheelRadius = 8;
+                const wheelHeight = 6;
+                const wheelGeometry = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelHeight, 32);
+                const wheelMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+                const wheel1 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel2 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel3 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel4 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel5 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel6 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel7 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel8 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel9 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel10 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel11 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel12 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel13 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel14 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel15 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel16 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel17 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel18 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+
+
+                // 2 pairs of wheels i the front of the truck
+                wheel1.position.set(-70, -25, 15);
+                wheel2.position.set(0, -25, -15);
+                wheel3.position.set(0, -25, 15);
+                wheel4.position.set(-130, -25, -15);
+                wheel5.position.set(-130, -25, 15);
+                wheel6.position.set(-100, -25, 15);
+                wheel7.position.set(-100, -25, -15);
+                wheel8.position.set(-70, -25, -15);
+                wheel9.position.set(30, -25, 15);
+                wheel10.position.set(-30, -25, -15);
+                wheel11.position.set(-30, -25, 15);
+                wheel12.position.set(30, -25, -15);
+                wheel13.position.set(-180, -25, 15);
+                wheel14.position.set(-180, -25, -15);
+                wheel15.position.set(-208, -25, -15);
+                wheel16.position.set(-208, -25, 15);
+                wheel17.position.set(-235, -25, -15);
+                wheel18.position.set(-235, -25, 15);
+
+                wheel1.rotation.x = Math.PI / 2;
+                wheel2.rotation.x = Math.PI / 2;
+                wheel3.rotation.x = Math.PI / 2;
+                wheel4.rotation.x = Math.PI / 2;
+                wheel5.rotation.x = Math.PI / 2;
+                wheel6.rotation.x = Math.PI / 2;
+                wheel7.rotation.x = Math.PI / 2;
+                wheel8.rotation.x = Math.PI / 2;
+                wheel9.rotation.x = Math.PI / 2;
+                wheel10.rotation.x = Math.PI / 2;
+                wheel11.rotation.x = Math.PI / 2;
+                wheel12.rotation.x = Math.PI / 2;
+                wheel13.rotation.x = Math.PI / 2;
+                wheel14.rotation.x = Math.PI / 2;
+                wheel15.rotation.x = Math.PI / 2;
+                wheel16.rotation.x = Math.PI / 2;
+                wheel17.rotation.x = Math.PI / 2;
+                wheel18.rotation.x = Math.PI / 2;
+
+
+                carBody.add(wheel1);
+                carBody.add(wheel2);
+                carBody.add(wheel3);
+                carBody.add(wheel4);
+                carBody.add(wheel5);
+                carBody.add(wheel6);
+                carBody.add(wheel7);
+                carBody.add(wheel8);
+                carBody.add(wheel9);
+                carBody.add(wheel10);
+                carBody.add(wheel11);
+                carBody.add(wheel12);
+                carBody.add(wheel13);
+                carBody.add(wheel14);
+                carBody.add(wheel15);
+                carBody.add(wheel16);
+                carBody.add(wheel17);
+                carBody.add(wheel18);
+
+
+                const cabinGeometryCon1 = new THREE.BoxGeometry(40, 5, 10); // Customize dimensions as needed
+                const cabinMaterialCon1 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabinCon1 = new THREE.Mesh(cabinGeometryCon1, cabinMaterialCon1);
+                cabinCon1.position.set(-55, -15, 0); // Position the cabin in front of the car body
+                cabinCon1.rotation.x = Math.PI / 2;
+                carBody.add(cabinCon1);
+
+                const cabinGeometryCon2 = new THREE.BoxGeometry(40, 5, 10); // Customize dimensions as needed
+                const cabinMaterialCon2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabinCon2 = new THREE.Mesh(cabinGeometryCon2, cabinMaterialCon2);
+                cabinCon2.position.set(-150, -15, 0); // Position the cabin in front of the car body
+                cabinCon2.rotation.x = Math.PI / 2;
+                carBody.add(cabinCon2);
+
+
+
+                // front window
+                const windowGeometry = new THREE.BoxGeometry(30, 15, 2); // Customize dimensions as needed
+                const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.5 });
+                const frontWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+                frontWindow.position.set(80, 7, 0); // Position the window on the front of the cabin
+                frontWindow.rotation.y = Math.PI / 2;
+                carBody.add(frontWindow);
+
+
+                // Create axles
+                const axleGeometry = new THREE.CylinderGeometry(1, 1, 265, 30); // Adjust dimensions as needed
+                const axleMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const axle1 = new THREE.Mesh(axleGeometry, axleMaterial);
+                const axle2 = new THREE.Mesh(axleGeometry, axleMaterial);
+
+                // Position the axles
+                axle1.position.set(-103, -25, -19);
+                axle2.position.set(-103, -25, 19);
+
+                // Rotate the axles to align with wheels
+                axle1.rotation.z = Math.PI / 2;
+                axle2.rotation.z = Math.PI / 2;
+
+                // Add axles to the carBody
+                carBody.add(axle1);
+                carBody.add(axle2);
+
+                return carBody;
+            }
+
+            function Truck() {
+                // Create car body
+                const carBodyGeometry = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody = new THREE.Mesh(carBodyGeometry, carBodyMaterial);
+
+                // Create truck cabin
+                const cabinGeometry = new THREE.BoxGeometry(35, 30, 40); // Customize dimensions as needed
+                const cabinMaterial = new THREE.MeshBasicMaterial({ color: 0x8b0000 });
+                const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+                cabin.position.set(62, 5, 0); // Position the cabin in front of the car body
+                carBody.add(cabin);
+                const cabinGeometry2 = new THREE.BoxGeometry(40, 40, 10); // Customize dimensions as needed
+                const cabinMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabin2 = new THREE.Mesh(cabinGeometry2, cabinMaterial2);
+                cabin2.position.set(60, -15, 0); // Position the cabin in front of the car body
+                cabin2.rotation.x = Math.PI / 2;
+                carBody.add(cabin2);
+
+                // Create wheels
+                const wheelRadius = 8;
+                const wheelHeight = 6;
+                const wheelGeometry = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelHeight, 32);
+                const wheelMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const frontLeftWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const frontRightWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const rearLeftWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const rearRightWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+
+                const cabinWheelsRightBack = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const cabinWheelsLeftBack = new THREE.Mesh(wheelGeometry, wheelMaterial);
+
+                const cabinWheelsRightFront = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const cabinWheelsLeftFront = new THREE.Mesh(wheelGeometry, wheelMaterial);
+
+
+                // 2 pairs of wheels i the front of the truck
+                cabinWheelsRightBack.position.set(20, -20, 15);
+                cabinWheelsLeftBack.position.set(20, -20, -15);
+
+                cabinWheelsRightFront.position.set(50, -20, 15);
+                cabinWheelsLeftFront.position.set(50, -20, -15);
+
+
+                // 2 pairs of wheels in the back of the truck
+                frontLeftWheel.position.set(-30, -20, 15);
+                frontRightWheel.position.set(-16, -20, 15);
+                rearLeftWheel.position.set(-30, -20, -15);
+                rearRightWheel.position.set(-16, -20, -15);
+
+                frontLeftWheel.rotation.x = Math.PI / 2;
+                frontRightWheel.rotation.x = Math.PI / 2;
+                rearLeftWheel.rotation.x = Math.PI / 2;
+                rearRightWheel.rotation.x = Math.PI / 2;
+
+                cabinWheelsRightBack.rotation.x = Math.PI / 2;
+                cabinWheelsLeftBack.rotation.x = Math.PI / 2;
+
+                cabinWheelsRightFront.rotation.x = Math.PI / 2;
+                cabinWheelsLeftFront.rotation.x = Math.PI / 2;
+
+                carBody.add(frontLeftWheel);
+                carBody.add(frontRightWheel);
+                carBody.add(rearLeftWheel);
+                carBody.add(rearRightWheel);
+                carBody.add(cabinWheelsRightBack);
+                carBody.add(cabinWheelsLeftBack);
+                carBody.add(cabinWheelsRightFront);
+                carBody.add(cabinWheelsLeftFront);
+
+
+                //front lights
+                const lightGeometry = new THREE.SphereGeometry(3, 32, 32);
+                const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfffffff });
+                const leftLight = new THREE.Mesh(lightGeometry, lightMaterial);
+                const rightLight = new THREE.Mesh(lightGeometry, lightMaterial);
+                leftLight.position.set(80, -15, 12);
+                rightLight.position.set(80, -15, -12);
+                carBody.add(leftLight);
+                carBody.add(rightLight);
+
+                // front window
+                const windowGeometry = new THREE.BoxGeometry(30, 15, 2); // Customize dimensions as needed
+                const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.5 });
+                const frontWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+                frontWindow.position.set(80, 7, 0); // Position the window on the front of the cabin
+                frontWindow.rotation.y = Math.PI / 2;
+                carBody.add(frontWindow);
+
+                // Create door right
+                const doorRightGeometry = new THREE.BoxGeometry(1, 20, 10); // Customize dimensions as needed
+                const doorRightMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const doorRight = new THREE.Mesh(doorRightGeometry, doorRightMaterial);
+                doorRight.position.set(65, 5, 20); // Position the door on the side of the cabin
+                doorRight.rotation.y = Math.PI / 2;
+                carBody.add(doorRight);
+
+                const doorLeftGeometry = new THREE.BoxGeometry(1, 20, 10); // Customize dimensions as needed
+                const doorLeftMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const doorLeft = new THREE.Mesh(doorRightGeometry, doorRightMaterial);
+                doorLeft.position.set(65, 5, -20); // Position the door on the side of the cabin
+                doorLeft.rotation.y = Math.PI / 2;
+                carBody.add(doorLeft);
+
+                // create windshield
+                const wiperArmGeometry1 = new THREE.BoxGeometry(1, 0.5, 10); // Customize dimensions as needed
+                const wiperArmMaterial1 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperArm1 = new THREE.Mesh(wiperArmGeometry1, wiperArmMaterial1);
+                wiperArm1.position.set(80, 0, 7); // Position the wiper arm on the windshield
+                carBody.add(wiperArm1);
+
+                const wiperArmGeometry2 = new THREE.BoxGeometry(1, 0.5, 10); // Customize dimensions as needed
+                const wiperArmMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperArm2 = new THREE.Mesh(wiperArmGeometry2, wiperArmMaterial2);
+                wiperArm2.position.set(80, 0, -4); // Position the wiper arm on the windshield
+                carBody.add(wiperArm2);
+
+                // Create windshield wiper blade
+                const wiperBladeGeometry1 = new THREE.BoxGeometry(1, 10, 0.5); // Customize dimensions as needed
+                const wiperBladeMaterial1 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperBlade1 = new THREE.Mesh(wiperBladeGeometry1, wiperBladeMaterial1);
+                wiperBlade1.position.set(80, 4, 5); // Position the wiper blade on the windshield
+                wiperBlade1.rotation.x = Math.PI / -4;
+
+                carBody.add(wiperBlade1);
+
+
+                const wiperBladeGeometry2 = new THREE.BoxGeometry(1, 10, 0.5); // Customize dimensions as needed
+                const wiperBladeMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperBlade2 = new THREE.Mesh(wiperBladeGeometry2, wiperBladeMaterial2);
+                wiperBlade2.position.set(80, 4, -6); // Position the wiper blade on the windshield
+                wiperBlade2.rotation.x = Math.PI / -4;
+
+                carBody.add(wiperBlade2);
+                carBody.position.z = 30;
+                carBody.rotation.x = Math.PI / 2;
+                return carBody;
+            }
+
+            function Tree() {
+                // Materials
+                const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0xb5651d }); // Brown color for the trunk
+                const branchMaterial = new THREE.MeshStandardMaterial({ color: 0xb5651d }); // Brown color for the branches
+                const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x00aa00 }); // Green color for the foliage (cone)
+
+                // Trunk
+                const trunkRadius = 7;
+                const trunkHeight = 35;
+                const trunkGeometry = new THREE.CylinderGeometry(trunkRadius, trunkRadius, trunkHeight, 32);
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                trunk.position.y = trunkHeight;
+                trunk.castShadow = true;
+                trunk.receiveShadow = true;
+
+                // Branch
+                const branchLength = 10;
+                const branchRadius = 1;
+                const branchGeometry = new THREE.CylinderGeometry(branchRadius, branchRadius, branchLength, 32);
+                const branch1 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch1.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch1.castShadow = true;
+                branch1.receiveShadow = true;
+                trunk.add(branch1);
+
+                // cone branches
+                // Set branch inclination
+                const inclinationAngle = Math.PI / 8;
+                branch1.rotation.z = inclinationAngle;
+                branch1.position.y = 60
+                branch1.position.x = 0
+                branch1.position.z = 6
+
+                const branch2 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch2.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch2.castShadow = true;
+                branch2.receiveShadow = true;
+                trunk.add(branch2);
+
+                // Set branch inclination
+                const inclinationAngle2 = Math.PI / 4;
+                branch2.rotation.z = inclinationAngle2;
+                branch2.position.y = 55
+                branch2.position.x = -15
+                branch2.position.z = 14
+
+                const branch3 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch3.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch3.castShadow = true;
+                branch3.receiveShadow = true;
+                trunk.add(branch3);
+
+                // Set branch inclination
+                const inclinationAngle3 = Math.PI / 1.5;
+                branch3.rotation.z = inclinationAngle3;
+                branch3.position.y = 55
+                branch3.position.x = 15
+                branch3.position.z = 10
+
+                //trunk branches
+                const branch4 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch4.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch4.castShadow = true;
+                branch4.receiveShadow = true;
+                trunk.add(branch4);
+
+                // Set branch inclination
+                const inclinationAngle4 = Math.PI / 2;
+                branch4.rotation.z = inclinationAngle4;
+                branch4.position.y = 80
+                branch4.position.x = 5
+                branch4.position.z = 5
+
+                // Foliage (Cone)
+                const coneRadius = 30;
+                const coneHeight = 60;
+                const coneGeometry = new THREE.ConeGeometry(coneRadius, coneHeight, 32);
+                const cone = new THREE.Mesh(coneGeometry, foliageMaterial);
+                cone.position.y = 65;
+                cone.castShadow = true;
+                cone.receiveShadow = true;
+                trunk.add(cone);
+                trunk.rotation.x = Math.PI / 2;
+                trunk.position.y = -10;
+                return trunk;
+
+            }
+
+            function Chicken() {
+
+                const legSize = 3;
+                const legHeight = 20;
+                const legDistance = 30;
+                const chicken = new THREE.Group();
+
+                const body = new THREE.Mesh(
+                    new THREE.BoxGeometry(chickenSize * zoom, chickenSize * zoom, 20 * zoom),
+                    new THREE.MeshPhongMaterial({ color: 0xffffff, flatShading: true })
+                );
+                body.position.z = 25 * zoom;
+                body.castShadow = true;
+                body.receiveShadow = true;
+                chicken.add(body);
+
+                //lowerPart
+                const lowerPartSize = { width: chickenSize * zoom * 0.3, height: chickenSize * zoom * 0.3, depth: chickenSize * zoom * 1.2 };
+                const lowerPartMaterial = new THREE.MeshPhongMaterial({ color: 0xffdaed });
+
+                const lowerPart = new THREE.Mesh(
+                    new THREE.BoxGeometry(lowerPartSize.width, lowerPartSize.height, lowerPartSize.depth),
+                    lowerPartMaterial
+                );
+                lowerPart.rotation.x = Math.PI / 2;
+                lowerPart.position.y = -5;
+                lowerPart.position.x = 0;
+                lowerPart.position.z = 40;
+                // Add the lower part to the chicken group
+                chicken.add(lowerPart);
+
+
+                const rowel = new THREE.Mesh(
+                    new THREE.BoxGeometry(2 * zoom, 4 * zoom, 2 * zoom),
+                    new THREE.MeshLambertMaterial({ color: 0xF0619A, flatShading: true })
+                );
+                rowel.position.z = 35 * zoom;
+                rowel.castShadow = true;
+                rowel.receiveShadow = false;
+                chicken.add(rowel);
+
+                const legMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+
+                const leg1 = new THREE.Mesh(
+                    new THREE.CylinderGeometry(legSize, legSize, legHeight, 32),
+                    legMaterial
+                );
+                leg1.rotation.x = Math.PI / 2;
+                leg1.position.x = 10;
+                leg1.position.y = 10;
+                leg1.position.z = 15;
+
+                leg1.castShadow = true;
+                leg1.receiveShadow = true;
+                chicken.add(leg1);
+
+                const leg2 = leg1.clone();
+                leg2.position.x = -5;
+                leg2.position.y = 10;
+                leg2.rotation.x = Math.PI / 2;
+                chicken.add(leg2);
+
+                const footSize = 5;
+                const footHeight = 10;
+                const foot1 = new THREE.Mesh(
+                    new THREE.BoxGeometry(footSize, footHeight, footSize),
+                    legMaterial
+                );
+                foot1.position.y = 15;
+                foot1.position.x = 11;
+                foot1.position.z = 10;
+
+                foot1.castShadow = true;
+                foot1.receiveShadow = true;
+                chicken.add(foot1);
+
+                const foot2 = foot1.clone();
+                foot2.position.y = 15;
+                foot2.position.x = -5;
+                foot2.position.z = 10;
+                chicken.add(foot2);
+
+                // add wings
+                const wingSize = { width: 5 * zoom, height: 7 * zoom, depth: 2 * zoom };
+                const wingMaterial = new THREE.MeshPhongMaterial({ color: 0xcccccccc, flatShading: true });
+
+                const wing1 = new THREE.Mesh(
+                    new THREE.BoxGeometry(wingSize.width, wingSize.height, wingSize.depth),
+                    wingMaterial
+                );
+                wing1.rotation.y = Math.PI / 3; // Rotate by 90 degrees around the x-axis
+                // Position the wing relative to the body of the chicken
+                wing1.position.x = 15;
+                wing1.position.y = 0;
+                wing1.position.z = 50;
+
+                chicken.add(wing1);
+
+                const mixer = new THREE.AnimationMixer(wing1);
+
+
+                // Define keyframes for the wing animation
+                const keyframes = [
+                    { time: 0, value: 0 }, // Initial position
+                    { time: 0.25, value: Math.PI / 6 }, // Flap up
+                    { time: 0.25, value: 0 } // Return to initial position
+                ];
+
+                const track = new THREE.NumberKeyframeTrack('.rotation[x]', keyframes.map(kf => kf.time), keyframes.map(kf => kf.value));
+                const clip = new THREE.AnimationClip('flap', -1, [track]);
+
+                // Create an animation action
+                const action = mixer.clipAction(clip);
+                action.loop = THREE.LoopPingPong; // Make the animation loop back and forth
+
+                // Start the animation
+                action.play();
+                function animateWings() {
+                    requestAnimationFrame(animateWings);
+                    mixer.update(0.01); // Update the animation mixer
+                }
+                // Call the animate function
+                animateWings();
+
+                return chicken;
+            }
+
+            function Road() {
+                const road = new THREE.Group(); // Create a group for the road
+
+                const laneWidth = 2000; // Define laneWidth
+                const laneHeight = 1; // Define laneHeight
+                const laneDepth = 100; // Define laneDepth
+                const numberOfLines = 10;
+                const lineSpacing = laneWidth / (numberOfLines + 1);
+
+                // Create the road mesh
+                const geometry = new THREE.BoxGeometry(laneWidth, laneHeight, laneDepth);
+                const material = new THREE.MeshBasicMaterial({ color: 0x303030 });
+                const lane = new THREE.Mesh(geometry, material);
+                lane.rotation.x = Math.PI / 2; // Rotate 90 degrees around x-axis to make it flat
+                road.add(lane); // Add the road to the group
+
+                // Create white lines
+                const lineGeometry = new THREE.BoxGeometry(20, 1, 2); // Adjust size as needed
+                const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+                // Add lines to the road
+                for (let i = 1; i <= numberOfLines; i++) {
+                    const line = new THREE.Mesh(lineGeometry, lineMaterial);
+                    line.position.set(-laneWidth / 2 + i * lineSpacing, 0.5, 0); // Adjust y position as needed
+                    road.add(line); // Add line as a child of the road
+                }
+
+                return road;
+            }
+
+            function TrainTrack() {
+                const track = new THREE.Group(); // Create a group for the track
+
+                const trackWidth = 2000; // Define trackWidth
+                const trackHeight = 1; // Define trackHeight
+                const trackDepth = 69; // Define trackDepth
+                const numberOfPlanks = 65;
+                const plankSpacing = trackWidth / (numberOfPlanks + 1);
+
+                // Create the track mesh
+                const geometry = new THREE.BoxGeometry(trackWidth, trackHeight, trackDepth);
+                const material = new THREE.MeshBasicMaterial({ color: 0x0000000 }); // Dark gray for the track
+                const trackMesh = new THREE.Mesh(geometry, material);
+                trackMesh.rotation.x = Math.PI / 2; // Rotate 90 degrees around x-axis to make it flat
+                track.add(trackMesh); // Add the track to the group
+
+                // Create wooden planks for the track
+                const plankGeometry = new THREE.BoxGeometry(10, 1, trackDepth); // Adjust size as needed
+                const plankMaterial = new THREE.MeshBasicMaterial({ color: 0x8b4513 }); // Saddle brown for wooden planks
+
+                // Add planks to the track
+                for (let i = 1; i <= numberOfPlanks; i++) {
+                    const plank = new THREE.Mesh(plankGeometry, plankMaterial);
+                    plank.position.set(-trackWidth / 2 + i * plankSpacing, 0.5, 1); // Adjust y position as needed
+                    plank.rotation.x = Math.PI / 2; // Rotate 90 degrees around x-axis to make it flat
+                    track.add(plank); // Add plank as a child of the track
+                }
+
+                return track;
+            }
+
+
+            function Grass() {
+                const grass = new THREE.Group();
+
+                const createSection = color => new THREE.Mesh(
+                    new THREE.BoxGeometry(boardWidth * zoom, positionWidth * zoom, 3 * zoom),
+                    new THREE.MeshPhongMaterial({ color })
+                );
+
+                const middle = createSection(0xbaf455);
+                middle.receiveShadow = true;
+                grass.add(middle);
+
+                const left = createSection(0x99C846);
+                left.position.x = - boardWidth * zoom;
+                grass.add(left);
+
+                const right = createSection(0x99C846);
+                right.position.x = boardWidth * zoom;
+                grass.add(right);
+
+                grass.position.z = 1.5 * zoom;
+                return grass;
+            }
+
+
+
+            function Lane(index) {
+                this.index = index;
+                this.type = index <= 0 ? 'field' : laneTypes[Math.floor(Math.random() * laneTypes.length)];
+
+                switch (this.type) {
+                    case 'field': {
+                        this.type = 'field';
+                        this.mesh = new Grass();
+                        break;
+                    }
+                    case 'forest': {
+                        this.mesh = new Grass();
+
+                        this.occupiedPositions = new Set();
+                        this.trees = [1, 2, 3, 4].map(() => {
+                            const tree = new Tree();
+                            let position;
+                            do {
+                                position = Math.floor(Math.random() * columns);
+                            } while (this.occupiedPositions.has(position))
+                            this.occupiedPositions.add(position);
+                            tree.position.x = (position * positionWidth + positionWidth / 2) * zoom - boardWidth * zoom / 2;
+                            this.mesh.add(tree);
+                            return tree;
+                        })
+                        break;
+                    }
+                    case 'car': {
+                        this.mesh = new Road();
+                        this.direction = Math.random() >= 0.5;
+
+                        const occupiedPositions = new Set();
+                        this.vechicles = [1, 2, 3].map(() => {
+                            const vechicle = new Car();
+                            let position;
+                            do {
+                                position = Math.floor(Math.random() * columns / 2);
+                            } while (occupiedPositions.has(position))
+                            occupiedPositions.add(position);
+                            vechicle.position.x = (position * positionWidth * 2 + positionWidth / 2) * zoom - boardWidth * zoom / 2;
+                            if (!this.direction) vechicle.rotation.z = Math.PI;
+                            this.mesh.add(vechicle);
+                            return vechicle;
+                        })
+
+                        this.speed = laneSpeeds[Math.floor(Math.random() * laneSpeeds.length)];
+                        break;
+                    }
+                    case 'truck': {
+                        this.mesh = new Road();
+                        this.direction = Math.random() >= 0.5;
+
+                        const occupiedPositions = new Set();
+                        this.vechicles = [1, 2].map(() => {
+                            const vechicle = new Truck();
+                            let position;
+                            do {
+                                position = Math.floor(Math.random() * columns / 3);
+                            } while (occupiedPositions.has(position))
+                            occupiedPositions.add(position);
+                            vechicle.position.x = (position * positionWidth * 3 + positionWidth / 2) * zoom - boardWidth * zoom / 2;
+                            if (!this.direction) {
+                                vechicle.rotation.x = Math.PI / 2;
+                            }
+                            else {
+                                vechicle.rotation.x = Math.PI / 2;
+                                vechicle.rotation.y = Math.PI;
+                            }
+
+                            this.mesh.add(vechicle);
+                            return vechicle;
+                        })
+
+                        this.speed = laneSpeeds[Math.floor(Math.random() * laneSpeeds.length)];
+                        break;
+                    }
+                    case 'train': {
+                        this.mesh = new TrainTrack();
+                        this.direction = 0;
+
+                        const occupiedPositions = new Set();
+                        this.vechicles = [1].map(() => {
+                            const vechicle = new Train();
+                            vechicle.rotation.x = -Math.PI / 2;
+                            vechicle.rotation.y = Math.PI;
+                            vechicle.position.z = 30;
+                            let position;
+                            do {
+                                position = Math.floor(Math.random() * columns);
+                            } while (occupiedPositions.has(position))
+                            occupiedPositions.add(position);
+                            vechicle.position.x = (position * positionWidth * 2 + positionWidth / 2) * zoom - boardWidth * zoom / 2;
+                            if (!this.direction) {
+                                vechicle.rotation.z = Math.PI;
+                            }
+                            this.mesh.add(vechicle);
+                            return vechicle;
+                        })
+
+                        this.speed = laneSpeeds[Math.floor(Math.random() * laneSpeeds.length)];
+                        this.la
+                        break;
+
+                    }
+                }
+            }
+
+
+
+            document.getElementById('forward').addEventListener("click", () => move('forward'));
+
+            document.getElementById('backward').addEventListener("click", () => move('backward'));
+
+            document.getElementById('left').addEventListener("click", () => move('left'));
+
+            document.getElementById('right').addEventListener("click", () => move('right'));
+
+            window.addEventListener("keydown", event => {
+                if (event.keyCode == '38') {
+                    // up arrow
+                    move('forward');
+                }
+                else if (event.keyCode == '40') {
+                    // down arrow
+                    move('backward');
+                }
+                else if (event.keyCode == '37') {
+                    // left arrow
+                    move('left');
+                }
+                else if (event.keyCode == '39') {
+                    // right arrow
+                    move('right');
+                }
+            });
+
+            function move(direction) {
+                const finalPositions = moves.reduce((position, move) => {
+                    if (move === 'forward') return { lane: position.lane + 1, column: position.column };
+                    if (move === 'backward') return { lane: position.lane - 1, column: position.column };
+                    if (move === 'left') return { lane: position.lane, column: position.column - 1 };
+                    if (move === 'right') return { lane: position.lane, column: position.column + 1 };
+                }, { lane: currentLane, column: currentColumn })
+
+                if (direction === 'forward') {
+                    if (lanes[finalPositions.lane + 1].type === 'forest' && lanes[finalPositions.lane + 1].occupiedPositions.has(finalPositions.column)) return;
+                    if (!stepStartTimestamp) startMoving = true;
+                    addLane();
+                }
+                else if (direction === 'backward') {
+                    if (finalPositions.lane === 0) return;
+                    if (lanes[finalPositions.lane - 1].type === 'forest' && lanes[finalPositions.lane - 1].occupiedPositions.has(finalPositions.column)) return;
+                    if (!stepStartTimestamp) startMoving = true;
+                }
+                else if (direction === 'left') {
+                    if (finalPositions.column === 0) return;
+                    if (lanes[finalPositions.lane].type === 'forest' && lanes[finalPositions.lane].occupiedPositions.has(finalPositions.column - 1)) return;
+                    if (!stepStartTimestamp) startMoving = true;
+                }
+                else if (direction === 'right') {
+                    if (finalPositions.column === columns - 1) return;
+                    if (lanes[finalPositions.lane].type === 'forest' && lanes[finalPositions.lane].occupiedPositions.has(finalPositions.column + 1)) return;
+                    if (!stepStartTimestamp) startMoving = true;
+                }
+                moves.push(direction);
+            }
+            function resetGame() {
+                const hitButton = document.getElementById('hitButton');
+                hitButton.style.display = 'none';
+
+                // Reset score and other game states
+                counterDOM.innerHTML = 0; // Corrected resetting the score
+                currentLane = 0;
+                currentColumn = Math.floor(columns/2);
+                // Reset the chicken position
+                chicken.position.x = 0; // Example reset position
+                chicken.position.y = 0;
+                camera.position.x = initialCameraPositionX;
+                camera.position.y = initialCameraPositionY;
+
+
+                // Any other reset logic you have
+                console.log('Game reseted!');
+            }
+
+            function animate(timestamp) {
+                requestAnimationFrame(animate);
+
+                if (!previousTimestamp) previousTimestamp = timestamp;
+                const delta = timestamp - previousTimestamp;
+                previousTimestamp = timestamp;
+
+                // Animate cars and trucks moving on the lane
+                lanes.forEach(lane => {
+                    if (lane.type === 'truck' || lane.type === 'train') {
+                        const aBitBeforeTheBeginingOfLane = -boardWidth * zoom / 2 - positionWidth * 2 * zoom;
+                        const aBitAfterTheEndOFLane = boardWidth * zoom / 2 + positionWidth * 2 * zoom;
+                        lane.vechicles.forEach(vechicle => {
+                            if (lane.direction) {
+                                vechicle.position.x = vechicle.position.x < aBitBeforeTheBeginingOfLane ? aBitAfterTheEndOFLane : vechicle.position.x -= lane.speed / 9 * delta;
+                            } else {
+                                vechicle.position.x = vechicle.position.x > aBitAfterTheEndOFLane ? aBitBeforeTheBeginingOfLane : vechicle.position.x += lane.speed / 6 * delta;
+                            }
+                        });
+                    }
+                });
+
+                if (startMoving) {
+                    stepStartTimestamp = timestamp;
+                    startMoving = false;
+                }
+
+                if (stepStartTimestamp) {
+                    const moveDeltaTime = timestamp - stepStartTimestamp;
+                    const moveDeltaDistance = Math.min(moveDeltaTime / stepTime, 1) * positionWidth * zoom;
+                    const jumpDeltaDistance = Math.sin(Math.min(moveDeltaTime / stepTime, 1) * Math.PI) * 8 * zoom;
+                    switch (moves[0]) {
+                        case 'forward': {
+                            const positionY = currentLane * positionWidth * zoom + moveDeltaDistance;
+                            camera.position.y = initialCameraPositionY + positionY;
+                            dirLight.position.y = initialDirLightPositionY + positionY;
+                            chicken.position.y = positionY; // initial chicken position is 0
+
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                        case 'backward': {
+                            const positionY = currentLane * positionWidth * zoom - moveDeltaDistance
+                            camera.position.y = initialCameraPositionY + positionY;
+                            dirLight.position.y = initialDirLightPositionY + positionY;
+                            chicken.position.y = positionY;
+
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                        case 'left': {
+                            const positionX = (currentColumn * positionWidth + positionWidth / 2) * zoom - boardWidth * zoom / 2 - moveDeltaDistance;
+                            camera.position.x = initialCameraPositionX + positionX;
+                            dirLight.position.x = initialDirLightPositionX + positionX;
+                            chicken.position.x = positionX; // initial chicken position is 0
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                        case 'right': {
+                            const positionX = (currentColumn * positionWidth + positionWidth / 2) * zoom - boardWidth * zoom / 2 + moveDeltaDistance;
+                            camera.position.x = initialCameraPositionX + positionX;
+                            dirLight.position.x = initialDirLightPositionX + positionX;
+                            chicken.position.x = positionX;
+
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                    }
+                    // Once a step has ended
+                    if (moveDeltaTime > stepTime) {
+                        switch (moves[0]) {
+                            case 'forward': {
+                                currentLane++;
+                                counterDOM.innerHTML = currentLane;
+                                break;
+                            }
+                            case 'backward': {
+                                currentLane--;
+                                counterDOM.innerHTML = currentLane;
+                                break;
+                            }
+                            case 'left': {
+                                currentColumn--;
+                                break;
+                            }
+                            case 'right': {
+                                currentColumn++;
+                                break;
+                            }
+                        }
+                        moves.shift();
+                        // If more steps are to be taken then restart counter otherwise stop stepping
+                        stepStartTimestamp = moves.length === 0 ? null : timestamp;
+                    }
+                }
+
+                // Hit test
+                if (lanes[currentLane].type === 'car' || lanes[currentLane].type === 'truck' || lanes[currentLane].type === 'train') {
+                    const chickenMinX = chicken.position.x - chickenSize * zoom / 2;
+                    const chickenMaxX = chicken.position.x + chickenSize * zoom / 2;
+                    const vechicleLength = { car: 60, truck: 90, train: 100 }[lanes[currentLane].type];
+                    lanes[currentLane].vechicles.forEach(vechicle => {
+                        const carMinX = vechicle.position.x - vechicleLength * zoom / 2;
+                        const carMaxX = vechicle.position.x + vechicleLength * zoom / 2;
+                        
+                        if (chickenMaxX > carMinX && chickenMinX < carMaxX) {
+                            console.log('hit');
+                            showHitButton();    
+                        }
+                    });
+                }
+                function showHitButton() {
+                    
+                    const hitButton = document.getElementById('hitButton');
+                    const hitText = document.getElementById('container');
+                    hitButton.style.display = 'block';
+                }
+                document.getElementById('hitButton').addEventListener('click', () => {
+                    resetGame();
+                });
+
+                function toggleScoreboard() {
+                    const scoreboard = document.getElementById('scoreboard');
+                    const counterValue = document.getElementById('counter').innerHTML;
+                    document.getElementById('scoreCounter').innerHTML = counterValue;
+
+                    if (scoreboard.style.display === 'none') {
+                        scoreboard.style.display = 'block';
+                    } else {
+                        scoreboard.style.display = 'none';
+                    }
+                }
+                document.getElementById('scoreButton').addEventListener('click', () => {
+                    toggleScoreboard();
+                });
+
+
+                renderer.render(scene, camera);
+            }
+            requestAnimationFrame(animate);
+        }
+
+
+        
+		// Once everything is loaded, run this function
+
+		function init_1st() {
+                const controls = document.getElementById('controlls');
+                controls.style.display = 'none';
+                const counterDOM = document.getElementById('counter');  
+                const endDOM = document.getElementById('end');  
+                
+                const scene = new THREE.Scene();
+
+                const distance = 30;
+                // Create a PerspectiveCamera
+                const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                // Assuming the chicken's initial position is (0, 0, 0)
+
+                const initialCameraPositionY = -Math.tan(camera.rotation.x) * distance;
+                const initialCameraPositionX = Math.tan(camera.rotation.y) * Math.sqrt(distance**2 + initialCameraPositionY**2);
+                camera.position.y = 100;
+                camera.position.x = 0;
+                camera.position.z = distance;
+                camera.rotation.x = Math.PI / 2;
+
+                const zoom = 2;
+                const chickenSize = 15;
+                const positionWidth = 42;
+                const columns = 17;
+                const boardWidth = positionWidth * columns;
+                const stepTime = 200; // Miliseconds it takes for the chicken to take a step forward, backward, left or right
+
+                let lanes;
+                let currentLane;
+                let currentColumn;
+                let previousTimestamp;
+                let startMoving;
+                let moves;
+                let stepStartTimestamp;
+
+               
+                const generateLanes = () => [-9,-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9].map((index) => {
+                    const lane = new Lane(index);
+                    lane.mesh.position.y = index * positionWidth * zoom;
+                    scene.add(lane.mesh);
+                    return lane;
+                }).filter((lane) => lane.index >= 0);
+
+                const addLane = () => {
+                    const index = lanes.length;
+                    const lane = new Lane(index);
+                    lane.mesh.position.y = index * positionWidth * zoom;
+                    scene.add(lane.mesh);
+                    lanes.push(lane);
+                }
+
+                const chicken = new Chicken();
+                scene.add(chicken);
+
+                const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.6);
+                scene.add(hemiLight);
+
+                const initialDirLightPositionX = -100;
+                const initialDirLightPositionY = -100;
+                const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+                dirLight.position.set(initialDirLightPositionX, initialDirLightPositionY, 200);
+                dirLight.castShadow = true;
+                dirLight.target = chicken;
+                scene.add(dirLight);
+
+                dirLight.shadow.mapSize.width = 2048;
+                dirLight.shadow.mapSize.height = 2048;
+                const d = 500;
+                dirLight.shadow.camera.left = -d;
+                dirLight.shadow.camera.right = d;
+                dirLight.shadow.camera.top = d;
+                dirLight.shadow.camera.bottom = -d;
+
+                const backLight = new THREE.DirectionalLight(0x000000, 0.4);
+                backLight.position.set(200, 200, 50);
+                backLight.castShadow = true;
+                scene.add(backLight);
+
+                const laneTypes = ['truck', 'forest', 'train'];
+                const laneSpeeds = [2, 2.5, 3];
+                const vechicleColors = [0xa52523, 0xbdb638, 0x78b14b];
+                const treeHeights = [20, 45, 60];
+
+                const initaliseValues = () => {
+                    lanes = generateLanes();
+                    currentLane = 0;
+                    currentColumn = Math.floor(columns / 2);
+                    previousTimestamp = null;
+                    startMoving = false;
+                    moves = [];
+                    stepStartTimestamp;
+                    chicken.position.x = 0;
+                    chicken.position.y = 0;
+                    camera.position.y = initialCameraPositionY;
+                    camera.position.x = initialCameraPositionX;
+                    camera.rotation.x = Math.PI / 2;
+                    dirLight.position.x = initialDirLightPositionX;
+                    dirLight.position.y = initialDirLightPositionY;
+                }
+
+                initaliseValues();
+
+                const renderer = new THREE.WebGLRenderer({
+                    alpha: true,
+                    antialias: true
+                });
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                document.body.appendChild(renderer.domElement);
+
+                // user interaction
+                let drag = false;
+                let phi = 0, theta = 0;
+                let old_x, old_y;
+                let radius = distance;
+
+                const mouseDown = function (e) {
+                    drag = true;
+                    old_x = e.pageX;
+                    old_y = e.pageY;
+                    e.preventDefault();
+                    return false;
+                }
+
+                const mouseUp = function (e) {
+                    drag = false;
+                }
+
+                const mouseMove = function (e) {
+                    if (!drag) return false;
+                    const dX = e.pageX - old_x;
+                    const dY = e.pageY - old_y;
+                    theta += dX * 2 * Math.PI / window.innerWidth;
+                    phi += dY * 2 * Math.PI / window.innerHeight;
+                    old_x = e.pageX;
+                    old_y = e.pageY;
+                    e.preventDefault();
+                }
+
+                const onDocumentKeyDown = function (event) {
+                    const keyCode = event.which;
+                    if (keyCode == 187) {
+                        radius -= 0.1;
+                    }
+                    if (keyCode == 189) {
+                        radius += 0.1;
+                    }
+                }
+
+                renderer.domElement.addEventListener("mousedown", mouseDown);
+                renderer.domElement.addEventListener("mouseup", mouseUp);
+                renderer.domElement.addEventListener("mousemove", mouseMove);
+                document.addEventListener("keydown", onDocumentKeyDown, false);
+
+                window.addEventListener('resize', function () {
+                    renderer.setSize(window.innerWidth, window.innerHeight);
+                    const aspect = window.innerWidth / window.innerHeight;
+                    camera.aspect = aspect;
+                    camera.updateProjectionMatrix();
+                });
+
+                const render = function () {
+                    requestAnimationFrame(render);
+
+                    renderer.render(scene, camera);
+                };
+
+                render();
+            
+
+            function Wheel() {
+                const wheel = new THREE.Mesh( 
+                    new THREE.BoxGeometry( 12*zoom, 33*zoom, 12*zoom ), 
+                    new THREE.MeshLambertMaterial( { color: 0x333333, flatShading: true } ) 
+                );
+                wheel.position.z = 6*zoom;
+                return wheel;
+            }
+
+            function Car() {
+                const car = new THREE.Group();
+                const color = vechicleColors[Math.floor(Math.random() * vechicleColors.length)];
+                
+                const main = new THREE.Mesh(
+                    new THREE.BoxGeometry( 60*zoom, 30*zoom, 15*zoom ), 
+                    new THREE.MeshPhongMaterial( { color, flatShading: true } )
+                );
+                main.position.z = 12*zoom;
+                main.castShadow = true;
+                main.receiveShadow = true;
+                car.add(main)
+                
+                const cabin = new THREE.Mesh(
+                    new THREE.BoxGeometry( 33*zoom, 24*zoom, 12*zoom ), 
+                    [
+                    new THREE.MeshPhongMaterial( { color: 0xcccccc, flatShading: true, map: carBackTexture } ),
+                    new THREE.MeshPhongMaterial( { color: 0xcccccc, flatShading: true, map: carFrontTexture } ),
+                    new THREE.MeshPhongMaterial( { color: 0xcccccc, flatShading: true, map: carRightSideTexture } ),
+                    new THREE.MeshPhongMaterial( { color: 0xcccccc, flatShading: true, map: carLeftSideTexture } ),
+                    new THREE.MeshPhongMaterial( { color: 0xcccccc, flatShading: true } ), // top
+                    new THREE.MeshPhongMaterial( { color: 0xcccccc, flatShading: true } ) // bottom
+                    ]
+                );
+                cabin.position.x = 6*zoom;
+                cabin.position.z = 25.5*zoom;
+                cabin.castShadow = true;
+                cabin.receiveShadow = true;
+                car.add( cabin );
+                
+                const frontWheel = new Wheel();
+                frontWheel.position.x = -18*zoom;
+                car.add( frontWheel );
+
+                const backWheel = new Wheel();
+                backWheel.position.x = 18*zoom;
+                car.add( backWheel );
+
+                car.castShadow = true;
+                car.receiveShadow = false;
+                
+                return car;  
+            }
+
+            function Train(){
+                                // Create cabin
+                const carBodyGeometry = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody = new THREE.Mesh(carBodyGeometry, carBodyMaterial);
+
+                // Create cabin
+                const carBodyGeometry1 = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial1 = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody1 = new THREE.Mesh(carBodyGeometry1, carBodyMaterial1);
+                carBody1.position.set(-100, 0, 0);
+                carBody.add(carBody1);
+
+
+                // Create cabin
+                const carBodyGeometry2 = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial2 = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody2 = new THREE.Mesh(carBodyGeometry2, carBodyMaterial2);
+                carBody2.position.set(-204, 0, 0);
+                carBody.add(carBody2);
+
+
+                // Create train driver cabin
+                const cabinGeometry = new THREE.BoxGeometry(35, 30, 40); // Customize dimensions as needed
+                const cabinMaterial = new THREE.MeshBasicMaterial({ color: 0x9DA377 });
+                const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+                cabin.position.set(62, 5, 0); // Position the cabin in front of the car body
+                carBody.add(cabin);
+                const cabinGeometry2 = new THREE.BoxGeometry(40, 40, 10); // Customize dimensions as needed
+                const cabinMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabin2 = new THREE.Mesh(cabinGeometry2, cabinMaterial2);
+                cabin2.position.set(60, -15, 0); // Position the cabin in front of the car body
+                cabin2.rotation.x = Math.PI / 2;
+                carBody.add(cabin2);
+
+                // Create wheels
+                const wheelRadius = 8;
+                const wheelHeight = 6;
+                const wheelGeometry = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelHeight, 32);
+                const wheelMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                
+                const wheel1 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel2 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel3 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel4 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel5 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel6 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel7 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel8 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel9 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel10 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel11 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel12 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel13 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel14 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel15 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel16 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel17 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const wheel18 = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                
+
+                // 2 pairs of wheels i the front of the truck
+                wheel1.position.set(-70, -25, 15);
+                wheel2.position.set(0, -25, -15);
+                wheel3.position.set(0, -25, 15);
+                wheel4.position.set(-130, -25, -15);
+                wheel5.position.set(-130, -25, 15);
+                wheel6.position.set(-100, -25, 15);
+                wheel7.position.set(-100, -25, -15);
+                wheel8.position.set(-70, -25, -15);
+                wheel9.position.set(30, -25, 15);
+                wheel10.position.set(-30, -25, -15);
+                wheel11.position.set( -30, -25, 15);
+                wheel12.position.set(30, -25, -15);
+                wheel13.position.set(-180, -25, 15);
+                wheel14.position.set(-180, -25, -15);
+                wheel15.position.set(-208, -25, -15);
+                wheel16.position.set(-208, -25, 15);
+                wheel17.position.set(-235, -25, -15);
+                wheel18.position.set(-235, -25, 15);            
+
+                wheel1.rotation.x = Math.PI / 2;
+                wheel2.rotation.x = Math.PI / 2;
+                wheel3.rotation.x = Math.PI / 2;
+                wheel4.rotation.x = Math.PI / 2;
+                wheel5.rotation.x = Math.PI / 2;
+                wheel6.rotation.x = Math.PI / 2;
+                wheel7.rotation.x = Math.PI / 2;
+                wheel8.rotation.x = Math.PI / 2;
+                wheel9.rotation.x = Math.PI / 2;
+                wheel10.rotation.x = Math.PI / 2;
+                wheel11.rotation.x = Math.PI / 2;
+                wheel12.rotation.x = Math.PI / 2;
+                wheel13.rotation.x = Math.PI / 2;
+                wheel14.rotation.x = Math.PI / 2;
+                wheel15.rotation.x = Math.PI / 2;
+                wheel16.rotation.x = Math.PI / 2;
+                wheel17.rotation.x = Math.PI / 2;
+                wheel18.rotation.x = Math.PI / 2;
+
+
+                carBody.add(wheel1);
+                carBody.add(wheel2);
+                carBody.add(wheel3);
+                carBody.add(wheel4);
+                carBody.add(wheel5);
+                carBody.add(wheel6);
+                carBody.add(wheel7);
+                carBody.add(wheel8);
+                carBody.add(wheel9);
+                carBody.add(wheel10);
+                carBody.add(wheel11);
+                carBody.add(wheel12);
+                carBody.add(wheel13);
+                carBody.add(wheel14);
+                carBody.add(wheel15);
+                carBody.add(wheel16);
+                carBody.add(wheel17);
+                carBody.add(wheel18);
+
+
+                const cabinGeometryCon1 = new THREE.BoxGeometry(40, 5, 10); // Customize dimensions as needed
+                const cabinMaterialCon1 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabinCon1 = new THREE.Mesh(cabinGeometryCon1, cabinMaterialCon1);
+                cabinCon1.position.set(-55, -15, 0); // Position the cabin in front of the car body
+                cabinCon1.rotation.x = Math.PI / 2;
+                carBody.add(cabinCon1);
+
+                const cabinGeometryCon2 = new THREE.BoxGeometry(40, 5, 10); // Customize dimensions as needed
+                const cabinMaterialCon2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabinCon2 = new THREE.Mesh(cabinGeometryCon2, cabinMaterialCon2);
+                cabinCon2.position.set(-150, -15, 0); // Position the cabin in front of the car body
+                cabinCon2.rotation.x = Math.PI / 2;
+                carBody.add(cabinCon2);
+
+            
+
+                // front window
+                const windowGeometry = new THREE.BoxGeometry(30, 15, 2); // Customize dimensions as needed
+                const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.5 });
+                const frontWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+                frontWindow.position.set(80, 7, 0); // Position the window on the front of the cabin
+                frontWindow.rotation.y = Math.PI / 2;
+                carBody.add(frontWindow);
+
+
+                // Create axles
+                const axleGeometry = new THREE.CylinderGeometry(1, 1, 265, 30); // Adjust dimensions as needed
+                const axleMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const axle1 = new THREE.Mesh(axleGeometry, axleMaterial);
+                const axle2 = new THREE.Mesh(axleGeometry, axleMaterial);
+
+                // Position the axles
+                axle1.position.set(-103, -25, -19);
+                axle2.position.set(-103, -25, 19);
+
+                // Rotate the axles to align with wheels
+                axle1.rotation.z = Math.PI / 2;
+                axle2.rotation.z = Math.PI / 2;
+
+                // Add axles to the carBody
+                carBody.add(axle1);
+                carBody.add(axle2);
+
+                return carBody;
+            }
+
+            function Truck() {
+                // Create car body
+                const carBodyGeometry = new THREE.BoxGeometry(80, 40, 40);
+                const carBodyMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
+                const carBody = new THREE.Mesh(carBodyGeometry, carBodyMaterial);
+
+                // Create truck cabin
+                const cabinGeometry = new THREE.BoxGeometry(35, 30, 40); // Customize dimensions as needed
+                const cabinMaterial = new THREE.MeshBasicMaterial({ color: 0x8b0000 });
+                const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+                cabin.position.set(62, 5, 0); // Position the cabin in front of the car body
+                carBody.add(cabin);
+                const cabinGeometry2 = new THREE.BoxGeometry(40, 40, 10); // Customize dimensions as needed
+                const cabinMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const cabin2 = new THREE.Mesh(cabinGeometry2, cabinMaterial2);
+                cabin2.position.set(60, -15, 0); // Position the cabin in front of the car body
+                cabin2.rotation.x = Math.PI / 2;
+                carBody.add(cabin2);
+
+                // Create wheels
+                const wheelRadius = 8;
+                const wheelHeight = 6;
+                const wheelGeometry = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelHeight, 32);
+                const wheelMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const frontLeftWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const frontRightWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const rearLeftWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const rearRightWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+
+                const cabinWheelsRightBack = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const cabinWheelsLeftBack = new THREE.Mesh(wheelGeometry, wheelMaterial);
+
+                const cabinWheelsRightFront = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                const cabinWheelsLeftFront = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                
+
+                // 2 pairs of wheels i the front of the truck
+                cabinWheelsRightBack.position.set(20, -20, 15);
+                cabinWheelsLeftBack.position.set(20, -20, -15);
+
+                cabinWheelsRightFront.position.set(50, -20, 15);
+                cabinWheelsLeftFront.position.set(50, -20, -15);
+
+
+                // 2 pairs of wheels in the back of the truck
+                frontLeftWheel.position.set(-30, -20, 15);
+                frontRightWheel.position.set(-16, -20, 15);
+                rearLeftWheel.position.set(-30, -20, -15);
+                rearRightWheel.position.set(-16, -20, -15);
+
+                frontLeftWheel.rotation.x = Math.PI / 2;
+                frontRightWheel.rotation.x = Math.PI / 2;
+                rearLeftWheel.rotation.x = Math.PI / 2;
+                rearRightWheel.rotation.x = Math.PI / 2;
+
+                cabinWheelsRightBack.rotation.x = Math.PI / 2;
+                cabinWheelsLeftBack.rotation.x = Math.PI / 2;
+
+                cabinWheelsRightFront.rotation.x = Math.PI / 2;
+                cabinWheelsLeftFront.rotation.x = Math.PI / 2;
+
+                carBody.add(frontLeftWheel);
+                carBody.add(frontRightWheel);
+                carBody.add(rearLeftWheel);
+                carBody.add(rearRightWheel);
+                carBody.add(cabinWheelsRightBack);
+                carBody.add(cabinWheelsLeftBack);
+                carBody.add(cabinWheelsRightFront);
+                carBody.add(cabinWheelsLeftFront);
+
+
+                //front lights
+                const lightGeometry = new THREE.SphereGeometry(3, 32, 32);
+                const lightMaterial = new THREE.MeshBasicMaterial({ color: 0xfffffff });
+                const leftLight = new THREE.Mesh(lightGeometry, lightMaterial);
+                const rightLight = new THREE.Mesh(lightGeometry, lightMaterial);
+                leftLight.position.set(80, -15, 12);
+                rightLight.position.set(80, -15, -12);
+                carBody.add(leftLight);
+                carBody.add(rightLight);
+
+                // front window
+                const windowGeometry = new THREE.BoxGeometry(30, 15, 2); // Customize dimensions as needed
+                const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.5 });
+                const frontWindow = new THREE.Mesh(windowGeometry, windowMaterial);
+                frontWindow.position.set(80, 7, 0); // Position the window on the front of the cabin
+                frontWindow.rotation.y = Math.PI / 2;
+                carBody.add(frontWindow);
+
+                // Create door right
+                const doorRightGeometry = new THREE.BoxGeometry(1, 20, 10); // Customize dimensions as needed
+                const doorRightMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const doorRight = new THREE.Mesh(doorRightGeometry, doorRightMaterial);
+                doorRight.position.set(65, 5, 20); // Position the door on the side of the cabin
+                doorRight.rotation.y = Math.PI / 2;
+                carBody.add(doorRight);
+
+                const doorLeftGeometry = new THREE.BoxGeometry(1, 20, 10); // Customize dimensions as needed
+                const doorLeftMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const doorLeft = new THREE.Mesh(doorRightGeometry, doorRightMaterial);
+                doorLeft.position.set(65, 5, -20); // Position the door on the side of the cabin
+                doorLeft.rotation.y = Math.PI / 2;
+                carBody.add(doorLeft);
+
+                // create windshield
+                const wiperArmGeometry1 = new THREE.BoxGeometry(1, 0.5, 10); // Customize dimensions as needed
+                const wiperArmMaterial1 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperArm1 = new THREE.Mesh(wiperArmGeometry1, wiperArmMaterial1);
+                wiperArm1.position.set(80, 0, 7); // Position the wiper arm on the windshield
+                carBody.add(wiperArm1);
+
+                const wiperArmGeometry2 = new THREE.BoxGeometry(1, 0.5, 10); // Customize dimensions as needed
+                const wiperArmMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperArm2 = new THREE.Mesh(wiperArmGeometry2, wiperArmMaterial2);
+                wiperArm2.position.set(80, 0, -4); // Position the wiper arm on the windshield
+                carBody.add(wiperArm2);
+
+                // Create windshield wiper blade
+                const wiperBladeGeometry1 = new THREE.BoxGeometry(1, 10, 0.5); // Customize dimensions as needed
+                const wiperBladeMaterial1 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperBlade1 = new THREE.Mesh(wiperBladeGeometry1, wiperBladeMaterial1);
+                wiperBlade1.position.set(80,4, 5); // Position the wiper blade on the windshield
+                wiperBlade1.rotation.x = Math.PI / -4;
+
+                carBody.add(wiperBlade1);
+
+
+                const wiperBladeGeometry2 = new THREE.BoxGeometry(1, 10, 0.5); // Customize dimensions as needed
+                const wiperBladeMaterial2 = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const wiperBlade2 = new THREE.Mesh(wiperBladeGeometry2, wiperBladeMaterial2);
+                wiperBlade2.position.set(80,4, -6); // Position the wiper blade on the windshield
+                wiperBlade2.rotation.x = Math.PI / -4;
+
+                carBody.add(wiperBlade2);
+                carBody.position.z = 30;
+                carBody.rotation.x = Math.PI/2;
+                return carBody;
+            }
+
+            function Tree() {
+                // Materials
+                const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0xb5651d }); // Brown color for the trunk
+                const branchMaterial = new THREE.MeshStandardMaterial({ color: 0xb5651d }); // Brown color for the branches
+                const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x00aa00 }); // Green color for the foliage (cone)
+
+                // Trunk
+                const trunkRadius = 7;
+                const trunkHeight = 70;
+                const trunkGeometry = new THREE.CylinderGeometry(trunkRadius, trunkRadius, trunkHeight, 32);
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                trunk.position.y = trunkHeight;
+                trunk.castShadow = true;
+                trunk.receiveShadow = true;
+
+                // Branch
+                const branchLength = 10;
+                const branchRadius = 1;
+                const branchGeometry = new THREE.CylinderGeometry(branchRadius, branchRadius, branchLength, 32);
+                const branch1 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch1.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch1.castShadow = true;
+                branch1.receiveShadow = true;
+                trunk.add(branch1);
+
+                // cone branches
+                // Set branch inclination
+                const inclinationAngle = Math.PI / 8; 
+                branch1.rotation.z = inclinationAngle;
+                branch1.position.y = 60
+                branch1.position.x = 0
+                branch1.position.z = 6
+
+                const branch2 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch2.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch2.castShadow = true;
+                branch2.receiveShadow = true;
+                trunk.add(branch2);
+
+                // Set branch inclination
+                const inclinationAngle2 = Math.PI / 4; 
+                branch2.rotation.z = inclinationAngle2;
+                branch2.position.y =55
+                branch2.position.x =-15
+                branch2.position.z =14
+
+                const branch3 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch3.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch3.castShadow = true;
+                branch3.receiveShadow = true;
+                trunk.add(branch3);
+
+                // Set branch inclination
+                const inclinationAngle3 = Math.PI/1.5;
+                branch3.rotation.z = inclinationAngle3;
+                branch3.position.y = 55
+                branch3.position.x = 15
+                branch3.position.z = 10
+
+                //trunk branches
+                const branch4 = new THREE.Mesh(branchGeometry, branchMaterial);
+                branch4.position.set(0, trunkHeight - branchLength / 2, 0);
+                branch4.castShadow = true;
+                branch4.receiveShadow = true;
+                trunk.add(branch4);
+
+                // Set branch inclination
+                const inclinationAngle4 = Math.PI/2; 
+                branch4.rotation.z = inclinationAngle4;
+                branch4.position.y = 80
+                branch4.position.x = 5
+                branch4.position.z =5
+
+                // Foliage (Cone)
+                const coneRadius = 30;
+                const coneHeight = 60;
+                const coneGeometry = new THREE.ConeGeometry(coneRadius, coneHeight, 32);
+                const cone = new THREE.Mesh(coneGeometry, foliageMaterial);
+                cone.position.y = 65;
+                cone.castShadow = true;
+                cone.receiveShadow = true;
+                trunk.add(cone);
+                trunk.rotation.x = Math.PI/2;
+                trunk.position.y = -10;
+                return trunk;
+
+            }
+
+            function Chicken() {
+
+                const legSize = 3;
+                const legHeight = 20;
+                const legDistance = 30;
+                const chicken = new THREE.Group();
+
+                const body = new THREE.Mesh(
+                    new THREE.BoxGeometry( chickenSize*zoom, chickenSize*zoom, 20*zoom ), 
+                    new THREE.MeshPhongMaterial( { color: 0xffffff, flatShading: true } )
+                );
+                body.position.z = 25*zoom;
+                body.castShadow = true;
+                body.receiveShadow = true;
+                //chicken.add(body);
+
+                //lowerPart
+                const lowerPartSize = { width: chickenSize * zoom*0.3 , height: chickenSize * zoom*0.3 , depth: chickenSize * zoom*1.2};
+                const lowerPartMaterial = new THREE.MeshPhongMaterial({ color: 0xffdaed});
+
+                const lowerPart = new THREE.Mesh(
+                    new THREE.BoxGeometry(lowerPartSize.width, lowerPartSize.height, lowerPartSize.depth),
+                    lowerPartMaterial
+                );
+                lowerPart.rotation.x = Math.PI / 2;
+                lowerPart.position.y = -5;
+                lowerPart.position.x = 0;
+                lowerPart.position.z = 40;
+                // Add the lower part to the chicken group
+                //chicken.add(lowerPart);
+
+
+                const rowel = new THREE.Mesh(
+                    new THREE.BoxGeometry( 2*zoom, 4*zoom, 2*zoom ), 
+                    new THREE.MeshLambertMaterial( { color: 0xF0619A, flatShading: true } )
+                );
+                rowel.position.z = 35*zoom;
+                rowel.castShadow = true;
+                rowel.receiveShadow = false;
+                //chicken.add(rowel);
+
+                const legMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+
+                const leg1 = new THREE.Mesh(
+                    new THREE.CylinderGeometry(legSize, legSize, legHeight, 32),
+                    legMaterial
+                );
+                leg1.rotation.x = Math.PI / 2;
+                leg1.position.x = 10;
+                leg1.position.y = 10;
+                leg1.position.z = 15;
+
+                leg1.castShadow = true;
+                leg1.receiveShadow = true;
+                //chicken.add(leg1);
+
+                const leg2 = leg1.clone();
+                leg2.position.x=-5;
+                leg2.position.y=10;
+                leg2.rotation.x = Math.PI / 2;
+                //chicken.add(leg2);
+
+                const footSize = 5;
+                const footHeight = 10;
+                const foot1 = new THREE.Mesh(
+                    new THREE.BoxGeometry(footSize, footHeight, footSize),
+                    legMaterial
+                );
+                foot1.position.y= 15;
+                foot1.position.x= 11;
+                foot1.position.z= 10;
+
+                foot1.castShadow = true;
+                foot1.receiveShadow = true;
+                //chicken.add(foot1);
+
+                const foot2 = foot1.clone();
+                foot2.position.y=15;
+                foot2.position.x=-5;
+                foot2.position.z=10;
+                //chicken.add(foot2);
+
+                // add wings
+                const wingSize = { width: 5 * zoom, height: 7 * zoom, depth: 2 * zoom };
+                const wingMaterial = new THREE.MeshPhongMaterial({ color: 0xcccccccc, flatShading: true });
+
+                const wing1 = new THREE.Mesh(
+                    new THREE.BoxGeometry(wingSize.width, wingSize.height, wingSize.depth),
+                    wingMaterial
+                );
+                wing1.rotation.y = Math.PI / 3; // Rotate by 90 degrees around the x-axis
+                // Position the wing relative to the body of the chicken
+                wing1.position.x= 15;
+                wing1.position.y= 0;
+                wing1.position.z= 50; 
+                
+                //chicken.add(wing1);
+
+                const mixer = new THREE.AnimationMixer(wing1);
+
+
+                // Define keyframes for the wing animation
+                const keyframes = [
+                    { time: 0, value: 0 }, // Initial position
+                    { time: 0.25, value: Math.PI / 6 }, // Flap up
+                    { time: 0.25, value: 0 } // Return to initial position
+                ];
+
+                const track = new THREE.NumberKeyframeTrack('.rotation[x]', keyframes.map(kf => kf.time), keyframes.map(kf => kf.value));
+                const clip = new THREE.AnimationClip('flap', -1, [track]);
+
+                // Create an animation action
+                const action = mixer.clipAction(clip);
+                action.loop = THREE.LoopPingPong; // Make the animation loop back and forth
+
+                // Start the animation
+                action.play();
+                function animateWings() {
+                    requestAnimationFrame(animateWings);
+                    mixer.update(0.01); // Update the animation mixer
+                }
+                // Call the animate function
+                animateWings(); 
+
+                return chicken;
+            }
+
+            function Road() {
+                const road = new THREE.Group(); // Create a group for the road
+
+                const laneWidth = 2000; // Define laneWidth
+                const laneHeight = 1; // Define laneHeight
+                const laneDepth = 100; // Define laneDepth
+                const numberOfLines = 10;
+                const lineSpacing = laneWidth / (numberOfLines + 1);
+
+                // Create the road mesh
+                const geometry = new THREE.BoxGeometry(laneWidth, laneHeight, laneDepth);
+                const material = new THREE.MeshBasicMaterial({ color: 0x303030 });
+                const lane = new THREE.Mesh(geometry, material);
+                lane.rotation.x = Math.PI / 2; // Rotate 90 degrees around x-axis to make it flat
+                road.add(lane); // Add the road to the group
+
+                // Create white lines
+                const lineGeometry = new THREE.BoxGeometry(20, 1, 2); // Adjust size as needed
+                const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+                // Add lines to the road
+                for (let i = 1; i <= numberOfLines; i++) {
+                    const line = new THREE.Mesh(lineGeometry, lineMaterial);
+                    line.position.set(-laneWidth / 2 + i * lineSpacing, 0.5, 0); // Adjust y position as needed
+                    road.add(line); // Add line as a child of the road
+                }
+
+                return road;
+            }
+
+            function TrainTrack() {
+                const track = new THREE.Group(); // Create a group for the track
+
+                const trackWidth = 2000; // Define trackWidth
+                const trackHeight = 1; // Define trackHeight
+                const trackDepth = 69; // Define trackDepth
+                const numberOfPlanks = 65;
+                const plankSpacing = trackWidth / (numberOfPlanks + 1);
+
+                // Create the track mesh
+                const geometry = new THREE.BoxGeometry(trackWidth, trackHeight, trackDepth);
+                const material = new THREE.MeshBasicMaterial({ color: 0x0000000 }); // Dark gray for the track
+                const trackMesh = new THREE.Mesh(geometry, material);
+                trackMesh.rotation.x = Math.PI / 2; // Rotate 90 degrees around x-axis to make it flat
+                track.add(trackMesh); // Add the track to the group
+
+                // Create wooden planks for the track
+                const plankGeometry = new THREE.BoxGeometry(10, 1, trackDepth); // Adjust size as needed
+                const plankMaterial = new THREE.MeshBasicMaterial({ color: 0x8b4513 }); // Saddle brown for wooden planks
+
+                // Add planks to the track
+                for (let i = 1; i <= numberOfPlanks; i++) {
+                    const plank = new THREE.Mesh(plankGeometry, plankMaterial);
+                    plank.position.set(-trackWidth / 2 + i * plankSpacing, 0.5, 1); // Adjust y position as needed
+                    plank.rotation.x = Math.PI / 2; // Rotate 90 degrees around x-axis to make it flat
+                    track.add(plank); // Add plank as a child of the track
+                }
+
+                return track;
+            }
+
+
+            function Grass() {
+                const grass = new THREE.Group();
+
+                const createSection = color => new THREE.Mesh(
+                    new THREE.BoxGeometry( boardWidth*zoom, positionWidth*zoom, 3*zoom ), 
+                    new THREE.MeshPhongMaterial( { color } )
+                );
+
+                const middle = createSection(0xbaf455);
+                middle.receiveShadow = true;
+                grass.add(middle);
+
+                const left = createSection(0x99C846);
+                left.position.x = - boardWidth*zoom;
+                grass.add(left);
+
+                const right = createSection(0x99C846);
+                right.position.x = boardWidth*zoom;
+                grass.add(right);
+
+                grass.position.z = 1.5*zoom;
+                return grass;
+            }
+
+            
+
+            function Lane(index) {
+                this.index = index;
+                this.type = index <= 0 ? 'field' : laneTypes[Math.floor(Math.random()*laneTypes.length)];
+
+                switch(this.type) {
+                    case 'field': {
+                        this.type = 'field';
+                        this.mesh = new Grass();
+                        break;
+                    }
+                    case 'forest': {
+                        this.mesh = new Grass();
+
+                        this.occupiedPositions = new Set();
+                        this.trees = [1,2,3,4].map(() => {
+                            const tree = new Tree();
+                            let position;
+                            do {
+                                position = Math.floor(Math.random()*columns);
+                            }while(this.occupiedPositions.has(position))
+                                this.occupiedPositions.add(position);
+                                tree.position.x = (position*positionWidth+positionWidth/2)*zoom-boardWidth*zoom/2;
+                                this.mesh.add( tree );
+                            return tree;
+                        })
+                        break;
+                    }
+                    case 'car' : {
+                        this.mesh = new Road();
+                        this.direction = Math.random() >= 0.5;
+
+                        const occupiedPositions = new Set();
+                        this.vechicles = [1,2,3].map(() => {
+                            const vechicle = new Car();
+                            let position;
+                            do {
+                            position = Math.floor(Math.random()*columns/2);
+                            }while(occupiedPositions.has(position))
+                            occupiedPositions.add(position);
+                            vechicle.position.x = (position*positionWidth*2+positionWidth/2)*zoom-boardWidth*zoom/2;
+                            if(!this.direction) vechicle.rotation.z = Math.PI;
+                            this.mesh.add( vechicle );
+                            return vechicle;
+                        })
+
+                        this.speed = laneSpeeds[Math.floor(Math.random()*laneSpeeds.length)];
+                        break;
+                    }
+                    case 'truck' : {
+                        this.mesh = new Road();
+                        this.direction = Math.random() >= 0.5;
+
+                        const occupiedPositions = new Set();
+                        this.vechicles = [1,2].map(() => {
+                            const vechicle = new Truck();
+                            let position;
+                            do {
+                                position = Math.floor(Math.random()*columns/3);
+                            }while(occupiedPositions.has(position))
+                            occupiedPositions.add(position);
+                            vechicle.position.x = (position*positionWidth*3+positionWidth/2)*zoom-boardWidth*zoom/2;
+                            if(!this.direction){
+                                vechicle.rotation.x = Math.PI/2;
+                            }
+                            else{vechicle.rotation.x = Math.PI/2; 
+                                vechicle.rotation.y = Math.PI;
+                            }
+                            
+                            this.mesh.add( vechicle );
+                            return vechicle;
+                        })
+
+                        this.speed = laneSpeeds[Math.floor(Math.random()*laneSpeeds.length)];
+                        break;
+                        }
+                    case 'train':{
+                        this.mesh = new TrainTrack();
+                        this.direction = 0;
+
+                        const occupiedPositions = new Set();
+                        this.vechicles = [1].map(() => {
+                            const vechicle = new Train();
+                            vechicle.rotation.x = -Math.PI/2;
+                            vechicle.rotation.y = Math.PI;
+                            vechicle.position.z = 30;
+                            let position;
+                            do {
+                            position = Math.floor(Math.random()*columns);
+                            }while(occupiedPositions.has(position))
+                            occupiedPositions.add(position);
+                            vechicle.position.x = (position*positionWidth*2+positionWidth/2)*zoom-boardWidth*zoom/2;
+                            if(!this.direction){
+                                vechicle.rotation.z = Math.PI;
+                            } 
+                            this.mesh.add( vechicle );
+                            return vechicle;
+                        })
+                    
+                        this.speed = laneSpeeds[Math.floor(Math.random()*laneSpeeds.length)];
+                        this.la
+                        break;
+                    
+                    }
+                }
+            }
+
+
+
+            document.getElementById('forward').addEventListener("click", () => move('forward'));
+
+            document.getElementById('backward').addEventListener("click", () => move('backward'));
+
+            document.getElementById('left').addEventListener("click", () => move('left'));
+
+            document.getElementById('right').addEventListener("click", () => move('right'));
+
+            window.addEventListener("keydown", event => {
+                if (event.keyCode == '38') {
+                    // up arrow
+                    move('forward');
+                }
+                else if (event.keyCode == '40') {
+                    // down arrow
+                    move('backward');
+                }
+                else if (event.keyCode == '37') {
+                    // left arrow
+                    move('left');
+                }
+                else if (event.keyCode == '39') {
+                    // right arrow
+                    move('right');
+                }
+            });
+
+            function move(direction) {
+                const finalPositions = moves.reduce((position,move) => {
+                    if(move === 'forward') return {lane: position.lane+1, column: position.column};
+                    if(move === 'backward') return {lane: position.lane-1, column: position.column};
+                    if(move === 'left') return {lane: position.lane, column: position.column-1};
+                    if(move === 'right') return {lane: position.lane, column: position.column+1};
+                }, {lane: currentLane, column: currentColumn})
+
+                if (direction === 'forward') {
+                    if(lanes[finalPositions.lane+1].type === 'forest' && lanes[finalPositions.lane+1].occupiedPositions.has(finalPositions.column)) return;
+                    if(!stepStartTimestamp) startMoving = true;
+                    addLane();
+                }
+                else if (direction === 'backward') {
+                    if(finalPositions.lane === 0) return;
+                    if(lanes[finalPositions.lane-1].type === 'forest' && lanes[finalPositions.lane-1].occupiedPositions.has(finalPositions.column)) return;
+                    if(!stepStartTimestamp) startMoving = true;
+                }
+                else if (direction === 'left') {
+                    if(finalPositions.column === 0) return;
+                    if(lanes[finalPositions.lane].type === 'forest' && lanes[finalPositions.lane].occupiedPositions.has(finalPositions.column-1)) return;
+                    if(!stepStartTimestamp) startMoving = true;
+                }
+                else if (direction === 'right') {
+                    if(finalPositions.column === columns - 1 ) return;
+                    if(lanes[finalPositions.lane].type === 'forest' && lanes[finalPositions.lane].occupiedPositions.has(finalPositions.column+1)) return;
+                    if(!stepStartTimestamp) startMoving = true;
+                }
+                moves.push(direction);
+            }
+            function resetGame() {
+                const hitButton = document.getElementById('hitButton');
+                hitButton.style.display = 'none';
+
+                // Reset score and other game states
+                counterDOM.innerHTML = 0; // Corrected resetting the score
+                moves = []; // Reset moves array
+                currentLane = 0;
+                currentColumn = Math.floor(columns/2);
+                // Reset the chicken position
+                chicken.position.x = 0; // Example reset position
+                chicken.position.y = 0;
+                camera.position.x = initialCameraPositionX;
+                camera.position.y = initialCameraPositionY;                        
+
+
+                // Any other reset logic you have
+                console.log('Game reset');
+            }
+
+            function animate(timestamp) {   
+                requestAnimationFrame( animate );
+
+                if(!previousTimestamp) previousTimestamp = timestamp;
+                const delta = timestamp - previousTimestamp;
+                previousTimestamp = timestamp;
+
+                // Animate cars and trucks moving on the lane
+                lanes.forEach(lane => {
+                    if(lane.type === 'truck' || lane.type === 'train') {
+                    const aBitBeforeTheBeginingOfLane = -boardWidth*zoom/2 - positionWidth*2*zoom;
+                    const aBitAfterTheEndOFLane = boardWidth*zoom/2 + positionWidth*2*zoom;
+                    lane.vechicles.forEach(vechicle => {
+                        if(lane.direction) {
+                            vechicle.position.x = vechicle.position.x < aBitBeforeTheBeginingOfLane ? aBitAfterTheEndOFLane : vechicle.position.x -= lane.speed/9*delta;
+                        }else{
+                            vechicle.position.x = vechicle.position.x > aBitAfterTheEndOFLane ? aBitBeforeTheBeginingOfLane : vechicle.position.x += lane.speed/6*delta;
+                        }
+                    });
+                    }
+                });
+
+                if(startMoving) {
+                    stepStartTimestamp = timestamp;
+                    startMoving = false;
+                }
+
+                if(stepStartTimestamp) {
+                    const moveDeltaTime = timestamp - stepStartTimestamp;
+                    const moveDeltaDistance = Math.min(moveDeltaTime/stepTime,1)*positionWidth*zoom;
+                    const jumpDeltaDistance = Math.sin(Math.min(moveDeltaTime/stepTime,1)*Math.PI)*8*zoom;
+                    switch(moves[0]) {
+                        case 'forward': {
+                            const positionY = currentLane*positionWidth*zoom + moveDeltaDistance;
+                            camera.position.y = initialCameraPositionY + positionY; 
+                            dirLight.position.y = initialDirLightPositionY + positionY; 
+                            chicken.position.y = positionY; // initial chicken position is 0
+
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                        case 'backward': {
+                            const positionY = currentLane*positionWidth*zoom - moveDeltaDistance
+                            camera.position.y = initialCameraPositionY + positionY;
+                            dirLight.position.y = initialDirLightPositionY + positionY; 
+                            chicken.position.y = positionY;
+
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                        case 'left': {
+                            const positionX = (currentColumn*positionWidth+positionWidth/2)*zoom -boardWidth*zoom/2 - moveDeltaDistance;
+                            camera.position.x = initialCameraPositionX + positionX;     
+                            dirLight.position.x = initialDirLightPositionX + positionX; 
+                            chicken.position.x = positionX; // initial chicken position is 0
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                        case 'right': {
+                            const positionX = (currentColumn*positionWidth+positionWidth/2)*zoom -boardWidth*zoom/2 + moveDeltaDistance;
+                            camera.position.x = initialCameraPositionX + positionX;       
+                            dirLight.position.x = initialDirLightPositionX + positionX;
+                            chicken.position.x = positionX; 
+
+                            chicken.position.z = jumpDeltaDistance;
+                            break;
+                        }
+                    }
+                    // Once a step has ended
+                    if(moveDeltaTime > stepTime) {
+                        switch(moves[0]) {
+                            case 'forward': {
+                            currentLane++;
+                            counterDOM.innerHTML = currentLane;    
+                            break;
+                            }
+                            case 'backward': {
+                            currentLane--;
+                            counterDOM.innerHTML = currentLane;    
+                            break;
+                            }
+                            case 'left': {
+                            currentColumn--;
+                            break;
+                            }
+                            case 'right': {
+                            currentColumn++;
+                            break;
+                            }
+                        }
+                        moves.shift();
+                        // If more steps are to be taken then restart counter otherwise stop stepping
+                            stepStartTimestamp = moves.length === 0 ? null : timestamp;
+                        }
+                }
+
+                // Hit test
+                if(lanes[currentLane].type === 'car' || lanes[currentLane].type === 'truck' || lanes[currentLane].type === 'train') {
+                    const chickenMinX = chicken.position.x - chickenSize*zoom/2;
+                    const chickenMaxX = chicken.position.x + chickenSize*zoom/2;
+                    const vechicleLength = { car: 60, truck: 50, train: 50}[lanes[currentLane].type]; 
+                    lanes[currentLane].vechicles.forEach(vechicle => {
+                        const carMinX = vechicle.position.x - vechicleLength*zoom/2;
+                        const carMaxX = vechicle.position.x + vechicleLength*zoom/2;
+                        if(chickenMaxX > carMinX && chickenMinX < carMaxX) {
+                            console.log('hit');
+                            showHitButton();
+                        }
+                    });
+                }
+                        function showHitButton() {
+                            const hitButton = document.getElementById('hitButton');
+                            const hitText = document.getElementById('container');
+                            hitButton.style.display = 'block';
+
+                        }
+                        document.getElementById('hitButton').addEventListener('click', () => {
+                            resetGame();
+                        });
+
+                        function toggleScoreboard() {
+                            const scoreboard = document.getElementById('scoreboard');
+                            const counterValue = document.getElementById('counter').innerHTML;
+                            document.getElementById('scoreCounter').innerHTML = counterValue;
+
+                            if (scoreboard.style.display === 'none') {
+                                scoreboard.style.display = 'block';
+                            } else {
+                                scoreboard.style.display = 'none';
+                            }
+                        }
+                        document.getElementById('scoreButton').addEventListener('click', () => {
+                            toggleScoreboard();
+                        });
+                    
+                        
+                        renderer.render( scene, camera );	
+                    }
+                    requestAnimationFrame( animate );
+    }
+                    var name = prompt("What is the view you want to play in? (Press: (1) for 1st Person, (2) for 3rd Person)");
+                    var game;
+                    if(name == 1){
+                    game = init_1st;
+                    }
+                    else if(name== 2){
+                        game = init_3rd;
+                    }
+                
+                    //Check for user input
+                
+                window.onload = game
+
+            </script>
+
+            <button id="hitButton">Restart</button>
+            <button id="scoreButton">Show Scoreboard</button>
+
+            <div id="counter"></div>
+                
+            <div id="controlls">
+                <div>
+                    <button id="forward"></button>
+                    <button id="left"></button>
+                    <button id="backward"></button>
+                    <button id="right"></button>
+                </div>
+            </div>
+
+            <div id="scoreboard">
+                <h2>Scoreboard</h2>
+                <p>Player 1: <span id="scoreCounter"></span></p>
+
+            </div>
+            
+        </body>
+
+        </html>
